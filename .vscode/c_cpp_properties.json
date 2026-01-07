@@ -1,0 +1,33 @@
+{
+    "configurations": [
+        {
+            "name": "windows-gcc-x64",
+            "includePath": [
+                "app",
+                "driver",
+                "third_lib/crc",
+                "third_lib/ringbuffer",
+                "third_lib/easylogger",
+                "firmware/cmsis/core",
+                "firmware/cmsis/device",
+                "firmware/driver/inc"
+            ],
+            "compilerPath": "D:/Program Files/arm-gnu-toolchain-14.3.rel1-mingw-w64-i686-arm-none-eabi/bin/arm-none-eabi-gcc.exe",
+            "cStandard": "c99",
+            "cppStandard": "c++11",
+            "intelliSenseMode": "windows-gcc-arm",
+            "compilerArgs": [
+                ""
+            ],
+            "defines": [
+                "STM32F40_41xxx",
+                "USE_STDPERIPH_DRIVER",
+                "HSE_VALUE=8000000"
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ],
+    "version": 4
+}

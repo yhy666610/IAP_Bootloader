@@ -467,18 +467,6 @@ bool fw_manager_flash_firmware(void)
     bool flash_ok = false;
     uint8_t try_zone; /* 本次尝试的区（0=A，1=B） */
 
-    if (!s_meta_valid || !meta_validate(&s_meta))
-    {
-        fw_meta_t tmp_meta;
-        w25qxx_read(FW_META_ADDR, (uint8_t *)&tmp_meta, sizeof(fw_meta_t));
-        if (!meta_validate(&tmp_meta))
-        {
-            log_e("fw_flash: metadata invalid in both RAM and Flash, cannot flash");
-            return false;
-        }
-        /* 只有验证通过才同步到 s_meta，避免脏数据污染 */
-        s_meta = tmp_meta;
-    }
     /* 优先信任刚写入 RAM 的元数据；只有在 RAM 无效时才从 Flash 补救 */
     if (!s_meta_valid || !meta_validate(&s_meta))
     {
@@ -801,9 +789,6 @@ bool fw_manager_commit_write(const uint8_t nonce[8], uint32_t fw_version, uint32
     s_meta.rollback_flag   = 0;
     s_meta.boot_fail_count = 0;
     meta_write(&s_meta);
-
-    log_i("fw_commit: metadata updated, zone_%c is now active",
-          (s_write_zone_idx == 0) ? 'A' : 'B');
 
     /* 清除流式写入状态（防止重复提交） */
     s_write_zone_addr  = 0;

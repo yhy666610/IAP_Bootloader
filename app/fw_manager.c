@@ -109,8 +109,7 @@ static void meta_read(fw_meta_t *meta)
 }
 
 /**
- * @brief 将meta结构体写入W25Q128元数据区
- *        写前计算meta_crc32（不含meta_crc32字段本身），先擦除扇区再写入
+ * @brief 验证meta结构体的有效性（魔数和CRC32）
  */
 static bool meta_validate(const fw_meta_t *meta)
 {
@@ -131,6 +130,10 @@ static bool meta_validate(const fw_meta_t *meta)
     return true;
 }
 
+/**
+ * @brief 将meta结构体写入W25Q128
+ * @param meta
+ */
 static void meta_write(fw_meta_t *meta)
 {
     meta->meta_crc32 = calc_crc32_buf((const uint8_t *)meta,
@@ -581,7 +584,7 @@ bool fw_manager_flash_firmware(void)
 
 void fw_manager_check_rollback(void)
 {
-    // 直接使用 fw_manager_init() 已初始化好的 s_meta，不重新从 W25Q128 读取
+    /* 直接使用 fw_manager_init() 已初始化好的 s_meta，不重新从 W25Q128 读取 */
     if (!s_meta_valid || !meta_validate(&s_meta))
     {
         log_w("fw_mgr: check_rollback: metadata invalid, skip");

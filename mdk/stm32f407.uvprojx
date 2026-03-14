@@ -406,6 +406,16 @@
               <FileType>1</FileType>
               <FilePath>..\app\magic_header.c</FilePath>
             </File>
+            <File>
+              <FileName>fw_crypto.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\fw_crypto.c</FilePath>
+            </File>
+            <File>
+              <FileName>fw_manager.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\fw_manager.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -440,6 +450,11 @@
               <FileName>stm32_flash.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\driver\stm32_flash.c</FilePath>
+            </File>
+            <File>
+              <FileName>w25q128.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\driver\w25q128.c</FilePath>
             </File>
           </Files>
         </Group>

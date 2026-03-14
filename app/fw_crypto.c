@@ -10,14 +10,9 @@
 #include <string.h>
 #include "fw_crypto.h"
 
-/* ========================================================================== */
-/* AES-128 常量表                                                               */
-/* ========================================================================== */
-
 /* AES S-Box（正变换查找表，256字节） */
 static const uint8_t s_sbox[256] =
 {
-    /* 0     1     2     3     4     5     6     7     8     9     a     b     c     d     e     f */
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
     0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
@@ -42,10 +37,6 @@ static const uint8_t s_rcon[10] =
     0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36
 };
 
-/* ========================================================================== */
-/* 模块状态                                                                     */
-/* ========================================================================== */
-
 /* 默认AES-128密钥（16字节）
  * 安全警告：默认密钥以明文存储在固件中，实际产品中必须替换为安全方式存储的密钥
  * （例如从STM32 OTP区域读取，或通过安全渠道烧录）。
@@ -59,12 +50,7 @@ static uint8_t s_key[FW_CRYPTO_KEY_SIZE] =
 /* 扩展轮密钥（11轮 × 4个uint32_t = 44个uint32_t = 176字节） */
 static uint32_t s_round_key[44];
 
-/* 密钥扩展是否已完成 */
 static uint8_t s_key_expanded = 0;
-
-/* ========================================================================== */
-/* GF(2^8) 有限域乘法辅助函数                                                   */
-/* ========================================================================== */
 
 /* GF(2^8) 乘以2（对应 xtime 操作）：左移1位，若最高位为1则异或0x1b（不可约多项式） */
 static inline uint8_t xtime(uint8_t x)
@@ -87,10 +73,6 @@ static inline uint8_t gmul(uint8_t a, uint8_t b)
     return p;
 }
 
-/* ========================================================================== */
-/* AES-128 密钥扩展                                                             */
-/* ========================================================================== */
-
 /**
  * @brief KeyExpansion — 从16字节原始密钥生成44个uint32_t轮密钥
  * @param key  16字节输入密钥
@@ -109,34 +91,45 @@ static void key_expansion(const uint8_t *key, uint32_t *rk)
                  ((uint32_t)key[4 * i + 3]);
     }
 
-    /* 生成剩余40个字 */
+    /* 生成剩余40个字（AES-128密钥扩展规则，FIPS 197 Section 5.2）：
+     *
+     * AES-128共11轮，每轮需要4个32位轮密钥字，共44个字（W[0]~W[43]）。
+     * - W[0..3]  : 直接取自原始密钥（已在上面完成）
+     * - W[i]     : i >= 4 时，分两种情况：
+     *
+     *   ① i % 4 != 0（普通字）：
+     *      W[i] = W[i-4] ^ W[i-1]
+     *      纯 XOR，利用前一轮密钥扩散新信息。
+     *
+     *   ② i % 4 == 0（每轮的第一个字，称为"关键字"）：
+     *      W[i] = W[i-4] ^ SubWord(RotWord(W[i-1])) ^ Rcon[i/4-1]
+     *      - RotWord : 循环左移1字节，打破字节位置的对称性
+     *      - SubWord : 经S-Box非线性替换，防止密钥关系被线性分析
+     *      - Rcon    : 轮常数（GF(2^8)中2的幂次），确保每轮子密钥各不相同，
+     *                  防止不同轮的密钥扩展产生相同结果（抵抗滑动攻击）
+     *
+     * 只在 i % 4 == 0 时做非线性操作，是 AES-128 密钥长度（Nk=4）的特定规则；
+     * AES-192/256 的触发条件不同（Nk=6/8），移植时注意区分。
+     */
     for (i = 4; i < 44; i++)
     {
         temp = rk[i - 1];
         if (i % 4 == 0)
         {
-            /* RotWord：循环左移8位 */
-            temp = (temp << 8) | (temp >> 24);
-            /* SubWord：对每个字节做S-Box替换 */
-            temp = ((uint32_t)s_sbox[(temp >> 24) & 0xFF] << 24) |
+            temp = (temp << 8) | (temp >> 24);                      /* RotWord  */
+            temp = ((uint32_t)s_sbox[(temp >> 24) & 0xFF] << 24) |  /* SubWord  */
                    ((uint32_t)s_sbox[(temp >> 16) & 0xFF] << 16) |
                    ((uint32_t)s_sbox[(temp >>  8) & 0xFF] << 8)  |
                    ((uint32_t)s_sbox[(temp)        & 0xFF]);
-            /* 异或Rcon */
-            temp ^= ((uint32_t)s_rcon[i / 4 - 1] << 24);
+            temp ^= ((uint32_t)s_rcon[i / 4 - 1] << 24);            /* ^ Rcon   */
         }
         rk[i] = rk[i - 4] ^ temp;
     }
 }
 
-/* ========================================================================== */
-/* AES-128 加密核心（单块16字节，使用查找表方式）                                 */
-/* ========================================================================== */
-
 /* 内部状态（state[行][列]，AES标准4×4字节矩阵） */
 typedef uint8_t aes_state_t[4][4];
 
-/* SubBytes：对state中每个字节做S-Box替换 */
 static void sub_bytes(aes_state_t state)
 {
     uint8_t i, j;
@@ -145,20 +138,16 @@ static void sub_bytes(aes_state_t state)
             state[i][j] = s_sbox[state[i][j]];
 }
 
-/* ShiftRows：对state的各行进行循环左移 */
 static void shift_rows(aes_state_t state)
 {
     uint8_t temp;
 
-    /* 第0行不移位 */
-    /* 第1行左移1位 */
     temp       = state[1][0];
     state[1][0] = state[1][1];
     state[1][1] = state[1][2];
     state[1][2] = state[1][3];
     state[1][3] = temp;
 
-    /* 第2行左移2位 */
     temp       = state[2][0];
     state[2][0] = state[2][2];
     state[2][2] = temp;
@@ -174,7 +163,6 @@ static void shift_rows(aes_state_t state)
     state[3][0] = temp;
 }
 
-/* MixColumns：对state的每列进行有限域矩阵乘法 */
 static void mix_columns(aes_state_t state)
 {
     uint8_t col, s0, s1, s2, s3;
@@ -222,7 +210,6 @@ static void aes128_encrypt_block(const uint8_t in[16], uint8_t out[16],
         for (col = 0; col < 4; col++)
             state[row][col] = in[col * 4 + row];
 
-    /* 初始轮密钥加 */
     add_round_key(state, rk);
 
     /* 前9轮：SubBytes + ShiftRows + MixColumns + AddRoundKey */
@@ -245,13 +232,8 @@ static void aes128_encrypt_block(const uint8_t in[16], uint8_t out[16],
             out[col * 4 + row] = state[row][col];
 }
 
-/* ========================================================================== */
-/* 公共接口                                                                     */
-/* ========================================================================== */
-
 void fw_crypto_init(void)
 {
-    /* 使用默认密钥生成扩展轮密钥 */
     key_expansion(s_key, s_round_key);
     s_key_expanded = 1;
 }
@@ -272,7 +254,7 @@ void fw_crypto_set_key(const uint8_t *key)
 void fw_crypto_decrypt(const uint8_t *in, uint8_t *out, uint32_t len,
                        const uint8_t nonce[8], uint32_t counter)
 {
-    uint8_t ctr_block[16]; /* 计数器块 */
+    uint8_t ctr_block[16];
     uint8_t keystream[16]; /* 加密后的计数器块（密钥流）*/
     uint32_t i, block_len;
 
@@ -295,23 +277,20 @@ void fw_crypto_decrypt(const uint8_t *in, uint8_t *out, uint32_t len,
         ctr_block[9]  = (uint8_t)(counter >> 16);
         ctr_block[10] = (uint8_t)(counter >> 8);
         ctr_block[11] = (uint8_t)(counter);
-        /* 最后4字节填0 */
+
         ctr_block[12] = 0;
         ctr_block[13] = 0;
         ctr_block[14] = 0;
         ctr_block[15] = 0;
 
-        /* 加密计数器块得到密钥流 */
         aes128_encrypt_block(ctr_block, keystream, s_round_key);
 
         /* 本次处理的字节数（最后一块可能不足16字节） */
         block_len = (len >= 16) ? 16 : len;
 
-        /* 输入与密钥流异或得到输出 */
         for (i = 0; i < block_len; i++)
             out[i] = in[i] ^ keystream[i];
 
-        /* 更新指针和计数器 */
         in      += block_len;
         out     += block_len;
         len     -= block_len;

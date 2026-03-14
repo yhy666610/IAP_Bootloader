@@ -8,10 +8,8 @@
 #define FW_CRYPTO_KEY_SIZE   16
 #define FW_CRYPTO_BLOCK_SIZE 16
 
-/* 初始化加密模块（设置默认密钥） */
 void fw_crypto_init(void);
 
-/* 设置加密密钥（16字节） */
 void fw_crypto_set_key(const uint8_t *key);
 
 /**

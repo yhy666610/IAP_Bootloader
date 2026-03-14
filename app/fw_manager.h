@@ -25,6 +25,7 @@ bool fw_manager_write_firmware(const uint8_t *encrypted_data, uint32_t size,
 /**
  * @brief 从W25Q128将固件解密并烧写到内部Flash
  *        自动选择有效区域（优先主区，主区无效则用备份区）
+ * @note  若某区解密或校验失败，该区状态会被标记为 ZONE_STATE_INVALID 并持久化。
  * @return true=成功
  */
 bool fw_manager_flash_firmware(void);

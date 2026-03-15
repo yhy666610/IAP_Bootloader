@@ -16,6 +16,7 @@
 #include "fw_crypto.h"
 #include "w25q128.h"
 #include "stm32_flash.h"
+#include "crc32.h"
 
 #define LOG_TAG "fw_mgr"
 #define LOG_LVL ELOG_LVL_INFO
@@ -74,29 +75,6 @@ static uint8_t  s_write_zone_idx  = 0;
 static uint32_t s_write_total_size = 0;
 
 /* ========================================================================== */
-/* CRC32 内部辅助（与fw_crypto使用相同算法，多项式0xEDB88320） */
-/* ========================================================================== */
-
-static uint32_t calc_crc32_buf(const uint8_t *data, uint32_t len)
-{
-    static const uint32_t crc_table[16] =
-    {
-        0x00000000UL, 0x1DB71064UL, 0x3B6E20C8UL, 0x26D930ACUL,
-        0x76DC4190UL, 0x6B6B51F4UL, 0x4DB26158UL, 0x5005713CUL,
-        0xEDB88320UL, 0xF00F9344UL, 0xD6D6A3E8UL, 0xCB61B38CUL,
-        0x9B64C2B0UL, 0x86D3D2D4UL, 0xA00AE278UL, 0xBDBDF21CUL
-    };
-    uint32_t crc = 0xFFFFFFFFUL;
-    uint32_t i;
-    for (i = 0; i < len; i++)
-    {
-        crc = (crc >> 4) ^ crc_table[(crc ^ (data[i] >> 0)) & 0x0FU];
-        crc = (crc >> 4) ^ crc_table[(crc ^ (data[i] >> 4)) & 0x0FU];
-    }
-    return crc ^ 0xFFFFFFFFUL;
-}
-
-/* ========================================================================== */
 /* 元数据内部操作                                                               */
 /* ========================================================================== */
 
@@ -119,7 +97,7 @@ static bool meta_validate(const fw_meta_t *meta)
               (unsigned long)meta->magic, (unsigned long)FW_META_MAGIC);
         return false;
     }
-    uint32_t crc = calc_crc32_buf((const uint8_t *)meta,
+    uint32_t crc = crc32((const uint8_t *)meta,
                                    (uint32_t)((const uint8_t *)&meta->meta_crc32 - (const uint8_t *)meta));
     if (crc != meta->meta_crc32)
     {
@@ -136,7 +114,7 @@ static bool meta_validate(const fw_meta_t *meta)
  */
 static void meta_write(fw_meta_t *meta)
 {
-    meta->meta_crc32 = calc_crc32_buf((const uint8_t *)meta,
+    meta->meta_crc32 = crc32((const uint8_t *)meta,
                                       (uint32_t)((uint8_t *)&meta->meta_crc32 - (uint8_t *)meta));
     w25qxx_erase_sector(FW_META_ADDR);
     w25qxx_write(FW_META_ADDR, (uint8_t *)meta, sizeof(fw_meta_t));
@@ -153,7 +131,7 @@ static void meta_write(fw_meta_t *meta)
               "magic=0x%08lX crc_stored=0x%08lX crc_calc=0x%08lX",
               (unsigned long)verify_buf.magic,
               (unsigned long)verify_buf.meta_crc32,
-              (unsigned long)calc_crc32_buf((const uint8_t *)&verify_buf,
+              (unsigned long)crc32((const uint8_t *)&verify_buf,
                   (uint32_t)((const uint8_t *)&verify_buf.meta_crc32 - (const uint8_t *)&verify_buf)));
     }
     else
@@ -212,7 +190,6 @@ static bool verify_zone(uint32_t zone_addr, uint32_t size,
     uint32_t chunk_len;
     uint32_t crc_accum  = 0xFFFFFFFFUL;
 
-    /* 复用4位nibble查找表进行流式CRC32计算 */
     static const uint32_t crc_table[16] =
     {
         0x00000000UL, 0x1DB71064UL, 0x3B6E20C8UL, 0x26D930ACUL,
